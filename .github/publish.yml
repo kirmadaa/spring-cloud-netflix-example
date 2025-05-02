@@ -1,8 +1,7 @@
 name: Build and Push Docker Images
 
-# 1. Trigger only on git push events
 on:
-  push: main                         # Runs on every push to any branch by default :contentReference[oaicite:0]{index=0}
+  push: master 
 
 jobs:
   build-and-push:
