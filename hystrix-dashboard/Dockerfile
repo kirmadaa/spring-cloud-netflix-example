@@ -1,4 +1,4 @@
-FROM java:8-jdk
+FROM openjdk:11
 RUN mkdir /app
 WORKDIR /app
 COPY build/libs/hystrix-dashboard.jar /app
