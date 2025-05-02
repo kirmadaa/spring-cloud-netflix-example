@@ -1,3 +1,15 @@
+name: Build and Push Docker Images
+
+# 1. Trigger only on git push events
+on:
+  push: main                         # Runs on every push to any branch by default :contentReference[oaicite:0]{index=0}
+
+jobs:
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest 
+  
+  
   - name: Set up QEMU
     uses: docker/setup-qemu-action@v2
 
