@@ -1,5 +1,5 @@
 # -----------------------------
-# 1) Build stage
+# 1) Build stages
 # -----------------------------
     FROM gradle:7.5.1-jdk17 AS builder
     # Use the Gradle image with JDK 17 for building (official Gradle image) :contentReference[oaicite:0]{index=0}
