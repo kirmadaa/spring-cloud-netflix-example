@@ -8,7 +8,7 @@ COPY gradle/ gradle/
 RUN chmod +x gradlew && ./gradlew dependency:go-offline --no-daemon
 
 # Build only the Zuul subproject
-COPY zuul/ zuul/
+COPY ../zuul/ zuul/
 RUN ./gradlew :zuul:clean :zuul:bootJar --no-daemon -x test
 
 # 2) Runtime stage: switch off Alpine for ARM64 compatibility
