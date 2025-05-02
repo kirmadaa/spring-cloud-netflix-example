@@ -1,4 +1,4 @@
-FROM java:17-jdk
+FROM openjdk:11
 RUN mkdir /app
 WORKDIR /app
 COPY build/libs/admin-dashboard.jar /app
