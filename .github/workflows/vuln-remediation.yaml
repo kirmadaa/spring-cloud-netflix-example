@@ -2,9 +2,9 @@ name: Container Vulnerability Remediation
 on:
   push:
     branches: [ master ]
-  # schedule:
-  #   - cron: '0 0 * * *'  # Daily at midnight
-  # workflow_dispatch:  # Manual trigger
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight
+  workflow_dispatch:  # Manual trigger
 
 permissions:
   contents: write
@@ -18,15 +18,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Set up JDK 
+      - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
-          java-version: '8'
+          java-version: '17'
           distribution: 'temurin'
       
       - name: Build application
-        run: mvn clean package -DskipTests
+        run: |
+          # Build only the specific module we need
+          cd eureka-server
+          mvn clean package -DskipTests
+          # Move the JAR to root for Docker build
+          mv target/*.jar ../eureka-server.jar
+          cd ..
         
+      - name: Upgrade Java Version in Dockerfile
+        id: java-upgrade
+        run: |
+          # Upgrade from Java 8 to Java 17
+          sed -i 's/FROM openjdk:8-jdk-alpine/FROM eclipse-temurin:17-jdk-alpine/g' Dockerfile
+          # Update Java command path
+          sed -i 's/java -jar/\/opt\/java\/openjdk\/bin\/java -jar/g' Dockerfile
+          # Update JAR reference
+          sed -i 's/spring-cloud-netflix-example-0.0.1-SNAPSHOT.jar/eureka-server.jar/g' Dockerfile
+          echo "java_upgraded=true" >> $GITHUB_OUTPUT
+          
       - name: Build Docker image
         run: docker build -t spring-app:${{ github.sha }} .
         
@@ -91,6 +108,10 @@ jobs:
             | Package | Severity | CVE ID | Version Update |
             |---------|----------|--------|----------------|
             ${{ steps.remediate.outputs.fixed_list }}
+            
+            **Additional changes:**
+            - Upgraded base image from Java 8 to Java 17
+            - Fixed Dockerfile to build correct module
             
             **Scan Report Summary:**
             - Total vulnerabilities found: ${{ steps.analyze.outputs.vuln_count }}
