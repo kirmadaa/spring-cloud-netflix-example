@@ -2,9 +2,9 @@ name: Container Vulnerability Remediation
 on:
   push:
     branches: [ master ]
-  schedule:
-    - cron: '0 0 * * *'  # Daily at midnight
-  workflow_dispatch:  # Manual trigger
+  # schedule:
+  #   - cron: '0 0 * * *'  # Daily at midnight
+  # workflow_dispatch:  # Manual trigger
 
 permissions:
   contents: write
@@ -14,6 +14,16 @@ permissions:
 jobs:
   build-scan-remediate:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [
+          'admin-dashboard',
+          'config-server',
+          'eureka-server',
+          'hystrix-dashboard',
+          'service-a',
+          'service-b'
+        ]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,129 +34,108 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       
-      # - name: Build application
-      #   run: |
-      #     # Build only the specific module we need
-      #     cd eureka-server
-      #     mvn clean package -DskipTests
-      #     # Move the JAR to root for Docker build
-      #     mv target/*.jar ../eureka-server.jar
-      #     cd ..
-        
-      # - name: Upgrade Java Version in Dockerfile
-      #   id: java-upgrade
-      #   run: |
-      #     # Upgrade from Java 8 to Java 17
-      #     sed -i 's/FROM openjdk:8-jdk-alpine/FROM eclipse-temurin:17-jdk-alpine/g' Dockerfile
-      #     # Update Java command path
-      #     sed -i 's/java -jar/\/opt\/java\/openjdk\/bin\/java -jar/g' Dockerfile
-      #     # Update JAR reference
-      #     sed -i 's/spring-cloud-netflix-example-0.0.1-SNAPSHOT.jar/eureka-server.jar/g' Dockerfile
-      #     echo "java_upgraded=true" >> $GITHUB_OUTPUT
+      - name: Build ${{ matrix.service }}
+        run: |
+          cd ${{ matrix.service }}
+          # Only build if it's a Maven project
+          if [ -f pom.xml ]; then
+            mvn clean package -DskipTests
+          fi
           
-      - name: Build Docker image
-        run: docker build -t spring-app:${{ github.sha }} .
+      - name: Upgrade Java Version in Dockerfile
+        run: |
+          cd ${{ matrix.service }}
+          # Upgrade from Java 8 to Java 17
+          sed -i 's/FROM openjdk:8-jdk-alpine/FROM eclipse-temurin:17-jdk-alpine/g' Dockerfile
+          sed -i 's/java -jar/\/opt\/java\/openjdk\/bin\/java -jar/g' Dockerfile
+          # Update JAR reference to use service name
+          sed -i "s/ADD target\/.*\.jar/ADD ${{ matrix.service }}.jar/g" Dockerfile
         
-      - name: Run Trivy vulnerability scan
-        id: trivy-scan
+      - name: Build Docker image for ${{ matrix.service }}
+        run: |
+          cd ${{ matrix.service }}
+          docker build -t ${{ matrix.service }}:${{ github.sha }} .
+        
+      - name: Run Trivy scan for ${{ matrix.service }}
+        id: trivy-scan-${{ matrix.service }}
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: spring-app:${{ github.sha }}
+          image-ref: ${{ matrix.service }}:${{ github.sha }}
           format: 'json'
-          output: trivy-results.json
+          output: trivy-results-${{ matrix.service }}.json
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: false
           exit-code: 0
       
-      - name: Analyze scan results
-        id: analyze
+      - name: Analyze scan results for ${{ matrix.service }}
+        id: analyze-${{ matrix.service }}
         run: |
-          vuln_count=$(jq '[.Results[].Vulnerabilities[] | select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length' trivy-results.json)
-          fixable_count=$(jq '[.Results[].Vulnerabilities[] | select((.Severity == "CRITICAL" or .Severity == "HIGH") and .FixedVersion != null)] | length' trivy-results.json)
-          
-          echo "Total vulnerabilities: $vuln_count"
-          echo "Fixable vulnerabilities: $fixable_count"
+          cd ${{ matrix.service }}
+          vuln_count=$(jq '[.Results[].Vulnerabilities[] | select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length' trivy-results-${{ matrix.service }}.json)
+          fixable_count=$(jq '[.Results[].Vulnerabilities[] | select((.Severity == "CRITICAL" or .Severity == "HIGH") and .FixedVersion != null)] | length' trivy-results-${{ matrix.service }}.json)
           
           echo "vuln_count=$vuln_count" >> $GITHUB_OUTPUT
           echo "fixable_count=$fixable_count" >> $GITHUB_OUTPUT
+          echo "service=${{ matrix.service }}" >> $GITHUB_OUTPUT
       
-      - name: Auto-remediate fixable vulnerabilities
-        id: remediate
-        if: ${{ steps.analyze.outputs.fixable_count != '0' }}
+      - name: Auto-remediate ${{ matrix.service }}
+        id: remediate-${{ matrix.service }}
+        if: ${{ steps.analyze-${{ matrix.service }}.outputs.fixable_count != '0' }}
         run: |
-          python3 scripts/auto-patch.py trivy-results.json
+          cd ${{ matrix.service }}
+          python3 ../scripts/auto-patch.py trivy-results-${{ matrix.service }}.json
           echo "patch_status=$?" >> $GITHUB_OUTPUT
           
           # Format patch report
-          fixed_list=$(jq -r '[.Results[].Vulnerabilities[] | select(.FixedVersion != null) | "| \(.PkgName) | \(.Severity) | \(.VulnerabilityID) | \(.InstalledVersion) → \(.FixedVersion) |"] | unique | .[]' trivy-results.json)
+          fixed_list=$(jq -r '[.Results[].Vulnerabilities[] | select(.FixedVersion != null) | "| \(.PkgName) | \(.Severity) | \(.VulnerabilityID) | \(.InstalledVersion) → \(.FixedVersion) |"] | unique | .[]' trivy-results-${{ matrix.service }}.json)
           echo "fixed_list<<EOF" >> $GITHUB_OUTPUT
           echo "$fixed_list" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
       
-      - name: Commit and push remediation
-        if: ${{ steps.remediate.outputs.patch_status == '0' }}
+      - name: Commit changes for ${{ matrix.service }}
+        if: ${{ steps.remediate-${{ matrix.service }}.outputs.patch_status == '0' }}
         run: |
+          cd ${{ matrix.service }}
+          git add Dockerfile
           git config user.name "security-bot"
           git config user.email "security-bot@users.noreply.github.com"
-          git add Dockerfile
-          git commit -m "fix(security): Auto-patch vulnerabilities"
-          git push origin HEAD:auto-patch-${{ github.run_id }}
+          git commit -m "fix(security): Auto-patch vulnerabilities in ${{ matrix.service }}"
+          # Move back to root for next service
+          cd ..
+    
+    # Post job to handle PR creation
+    outputs:
+      patched: ${{ steps.remediate-${{ matrix.service }}.outputs.patch_status == '0' }}
+      service: ${{ steps.analyze-${{ matrix.service }}.outputs.service }}
+      fixed_list: ${{ steps.remediate-${{ matrix.service }}.outputs.fixed_list }}
+      vuln_count: ${{ steps.analyze-${{ matrix.service }}.outputs.vuln_count }}
+      fixable_count: ${{ steps.analyze-${{ matrix.service }}.outputs.fixable_count }}
+  
+  create-pr:
+    needs: build-scan-remediate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
       
       - name: Create Pull Request
-        if: ${{ steps.remediate.outputs.patch_status == '0' }}
         uses: peter-evans/create-pull-request@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           title: "Security Patch: Vulnerability Remediation"
-          branch: auto-patch-${{ github.run_id }}
-          base: master
+          commit-message: "fix(security): Auto-patch vulnerabilities across services"
           body: |
             ## Automated Vulnerability Fixes
             
-            This PR contains security patches for the following vulnerabilities:
+            This PR contains security patches for multiple services:
             
-            | Package | Severity | CVE ID | Version Update |
-            |---------|----------|--------|----------------|
-            ${{ steps.remediate.outputs.fixed_list }}
+            ${{ join(needs.build-scan-remediate.outputs.*.fixed_list, '\n') }}
             
-            **Additional changes:**
-            - Upgraded base image from Java 8 to Java 17
-            - Fixed Dockerfile to build correct module
+            **Services Patched:**
+            ${{ join(needs.build-scan-remediate.outputs.*.service, ', ') }}
             
             **Scan Report Summary:**
-            - Total vulnerabilities found: ${{ steps.analyze.outputs.vuln_count }}
-            - Fixable vulnerabilities: ${{ steps.analyze.outputs.fixable_count }}
+            Total vulnerabilities fixed: ${{ sum(needs.build-scan-remediate.outputs.*.fixable_count) }}
             
             Auto-generated by GitHub Actions workflow.
           labels: security,automated
-      
-      - name: Create issue for unfixable vulnerabilities
-        if: ${{ steps.analyze.outputs.vuln_count != '0' && steps.remediate.outputs.patch_status != '0' }}
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const report = require('./trivy-results.json');
-            const criticalVulns = report.Results.flatMap(r => 
-              r.Vulnerabilities.filter(v => v.Severity === 'CRITICAL' && !v.FixedVersion)
-            );
-            
-            if (criticalVulns.length > 0) {
-              github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: "🚨 Critical Vulnerabilities Requiring Manual Remediation",
-                body: `## Unfixable Critical Vulnerabilities Detected
-                
-                **Image:** spring-app:${{ github.sha }}
-                **Scan Date:** ${new Date().toISOString()}
-                
-                | Package | CVE ID | Installed Version | Severity |
-                |---------|--------|-------------------|----------|
-                ${criticalVulns.map(v => `| ${v.PkgName} | ${v.VulnerabilityID} | ${v.InstalledVersion} | ${v.Severity} |`).join('\n')}
-                
-                ### Recommended Actions:
-                1. Upgrade base image
-                2. Remove unnecessary packages
-                3. Apply manual security patches`
-              });
-            }
