@@ -33,16 +33,16 @@ jobs:
       #     mv target/*.jar ../eureka-server.jar
       #     cd ..
         
-      - name: Upgrade Java Version in Dockerfile
-        id: java-upgrade
-        run: |
-          # Upgrade from Java 8 to Java 17
-          sed -i 's/FROM openjdk:8-jdk-alpine/FROM eclipse-temurin:17-jdk-alpine/g' Dockerfile
-          # Update Java command path
-          sed -i 's/java -jar/\/opt\/java\/openjdk\/bin\/java -jar/g' Dockerfile
-          # Update JAR reference
-          sed -i 's/spring-cloud-netflix-example-0.0.1-SNAPSHOT.jar/eureka-server.jar/g' Dockerfile
-          echo "java_upgraded=true" >> $GITHUB_OUTPUT
+      # - name: Upgrade Java Version in Dockerfile
+      #   id: java-upgrade
+      #   run: |
+      #     # Upgrade from Java 8 to Java 17
+      #     sed -i 's/FROM openjdk:8-jdk-alpine/FROM eclipse-temurin:17-jdk-alpine/g' Dockerfile
+      #     # Update Java command path
+      #     sed -i 's/java -jar/\/opt\/java\/openjdk\/bin\/java -jar/g' Dockerfile
+      #     # Update JAR reference
+      #     sed -i 's/spring-cloud-netflix-example-0.0.1-SNAPSHOT.jar/eureka-server.jar/g' Dockerfile
+      #     echo "java_upgraded=true" >> $GITHUB_OUTPUT
           
       - name: Build Docker image
         run: docker build -t spring-app:${{ github.sha }} .
