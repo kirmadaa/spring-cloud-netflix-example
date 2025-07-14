@@ -24,14 +24,14 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       
-      - name: Build application
-        run: |
-          # Build only the specific module we need
-          cd eureka-server
-          mvn clean package -DskipTests
-          # Move the JAR to root for Docker build
-          mv target/*.jar ../eureka-server.jar
-          cd ..
+      # - name: Build application
+      #   run: |
+      #     # Build only the specific module we need
+      #     cd eureka-server
+      #     mvn clean package -DskipTests
+      #     # Move the JAR to root for Docker build
+      #     mv target/*.jar ../eureka-server.jar
+      #     cd ..
         
       - name: Upgrade Java Version in Dockerfile
         id: java-upgrade
