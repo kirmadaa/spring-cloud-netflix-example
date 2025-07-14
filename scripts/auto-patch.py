@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 import json
 import re
-import os
 import sys
-import subprocess
+import os
 
-def update_dockerfile(vuln_data):
-    """Update Dockerfile with fixed package versions"""
+def update_dockerfile(vuln_data, service_name):
     dockerfile_path = 'Dockerfile'
     updates = {}
     
-    # Collect all fixable vulnerabilities
     for result in vuln_data.get('Results', []):
         for vuln in result.get('Vulnerabilities', []):
             if vuln.get('FixedVersion'):
@@ -23,14 +20,12 @@ def update_dockerfile(vuln_data):
                 }
     
     if not updates:
-        print("No fixable vulnerabilities found")
+        print(f"No fixable vulnerabilities found in {service_name}")
         return False
     
-    # Read Dockerfile
     with open(dockerfile_path, 'r') as f:
         content = f.read()
     
-    # Apply updates
     updated = False
     for pkg, data in updates.items():
         # Update APK packages
@@ -50,7 +45,6 @@ def update_dockerfile(vuln_data):
                 print(f"✅ Updated {pkg}: {data['current']} → {data['fixed']}")
                 updated = True
     
-    # Write updated Dockerfile
     if updated:
         with open(dockerfile_path, 'w') as f:
             f.write(content)
@@ -62,6 +56,8 @@ def main():
         print("Usage: auto-patch.py <trivy-results.json>")
         return 1
     
+    service_name = os.path.basename(os.getcwd())
+    
     try:
         with open(sys.argv[1]) as f:
             data = json.load(f)
@@ -69,10 +65,11 @@ def main():
         print(f"Error reading scan results: {e}")
         return 1
     
-    if update_dockerfile(data):
-        print("\n🎉 Dockerfile updated successfully")
+    if update_dockerfile(data, service_name):
+        print(f"\n🎉 Dockerfile updated successfully for {service_name}")
         return 0
-    print("\n⚠️ No updates applied to Dockerfile")
+    
+    print(f"\n⚠️ No updates applied to Dockerfile in {service_name}")
     return 1
 
 if __name__ == "__main__":
