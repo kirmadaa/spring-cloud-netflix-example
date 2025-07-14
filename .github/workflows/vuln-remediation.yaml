@@ -40,14 +40,19 @@ jobs:
           cd ${{ matrix.service }}
           if [ -f pom.xml ]; then
             mvn clean package -DskipTests
+          elif [ -f build.gradle ]; then
+            chmod +x gradlew || true
+            ./gradlew build -x test || gradle build -x test
           fi
 
       - name: Upgrade Java Version in Dockerfile
         run: |
           cd ${{ matrix.service }}
-          sed -i 's/FROM openjdk:8-jdk-alpine/FROM eclipse-temurin:17-jdk-alpine/g' Dockerfile
-          sed -i 's/java -jar/\/opt\/java\/openjdk\/bin\/java -jar/g' Dockerfile
-          sed -i "s/ADD target\/.*\.jar/ADD ${{ matrix.service }}.jar/g" Dockerfile
+          sed -i 's|FROM openjdk:8-jdk-alpine|FROM eclipse-temurin:17-jdk-alpine|g' Dockerfile || true
+          sed -i 's|java -jar|/opt/java/openjdk/bin/java -jar|g' Dockerfile || true
+          # Optional: If using wildcard JAR copy
+          sed -i 's|COPY build/libs/.*.jar /app|COPY build/libs/*.jar /app/${{ matrix.service }}.jar|g' Dockerfile || true
+          sed -i 's|ADD target/.*.jar|ADD ${{ matrix.service }}.jar|g' Dockerfile || true
 
       - name: Build Docker image for ${{ matrix.service }}
         run: |
@@ -79,7 +84,6 @@ jobs:
           cd ${{ matrix.service }}
           python3 ../scripts/auto-patch.py trivy-results.json || echo "patch_failed" > ../patch_status.txt
 
-          # Collect fixed list
           jq -r '[.Results[].Vulnerabilities[] | select(.FixedVersion != null) | "| \(.PkgName) | \(.Severity) | \(.VulnerabilityID) | \(.InstalledVersion) → \(.FixedVersion) |"] | unique | .[]' trivy-results.json > ../fixed_list.txt
         continue-on-error: true
 
@@ -103,7 +107,6 @@ jobs:
             patch_status.txt
         if: always()
 
-
   create-pr:
     needs: build-scan-remediate
     runs-on: ubuntu-latest
@@ -120,21 +123,18 @@ jobs:
           echo "## Vulnerability Remediation Report" > pr_body.txt
           echo "" >> pr_body.txt
           echo "**Services Patched:**" >> pr_body.txt
+          echo "" >> pr_body.txt
 
-          for dir in $(ls -d *-scan-results); do
-            cd $dir
-            service=$(cat ../$dir/service.txt)
-            fixable_count=$(cat ../$dir/fixable_count.txt)
-            fixed_list=$(cat ../$dir/fixed_list.txt)
-
+          for dir in $(find . -type d -name '*-scan-results'); do
+            service=$(cat "$dir/service.txt")
+            fixable_count=$(cat "$dir/fixable_count.txt")
             if [ "$fixable_count" -ne 0 ]; then
-              echo "- $service" >> ../pr_body.txt
-              echo "" >> ../pr_body.txt
-              echo "**Fixed Vulnerabilities in $service:**" >> ../pr_body.txt
-              echo "$fixed_list" >> ../pr_body.txt
-              echo "" >> ../pr_body.txt
+              echo "- $service" >> pr_body.txt
+              echo "" >> pr_body.txt
+              echo "**Fixed Vulnerabilities in $service:**" >> pr_body.txt
+              cat "$dir/fixed_list.txt" >> pr_body.txt
+              echo "" >> pr_body.txt
             fi
-            cd ..
           done
 
       - name: Create Pull Request
