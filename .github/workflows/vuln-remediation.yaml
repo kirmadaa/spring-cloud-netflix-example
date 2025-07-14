@@ -16,14 +16,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [
-          'admin-dashboard',
-          'config-server',
-          'eureka-server',
-          'hystrix-dashboard',
-          'service-a',
-          'service-b'
-        ]
+        service: 
+          - 'admin-dashboard'
+          - 'config-server'
+          - 'eureka-server'
+          - 'hystrix-dashboard'
+          - 'service-a'
+          - 'service-b'
+        
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
